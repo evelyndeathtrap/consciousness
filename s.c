@@ -39,7 +39,7 @@ void apply_effect(ALshort *buffer, int num_samples) {
 
         // Sum of Sines algorithm
         for (int k = 1; k <= ITERATIONS; k++) {
-            sum_of_sines += (1.0f / k) * cos(2.0 * M_PI * (current_freq * k) * (time + phase));
+            sum_of_sines += (1.0f / k) * sin(2.0 * M_PI * (current_freq * k) * (time + phase));
         }
 
         // Apply modulation
@@ -66,7 +66,7 @@ int main() {
     ALint samplesAvailable, processed, state;
 
     // --- Fill Random Cache ---
-    int fd = open("/dev/urandom", O_RDONLY);
+    int fd = open("/dev/random", O_RDONLY);
     read(fd, random_cache, sizeof(random_cache));
     close(fd);
 
