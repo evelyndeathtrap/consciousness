@@ -3,30 +3,49 @@
 #include <math.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <pthread.h> // Required for separate random thread
 #include <AL/al.h>
 #include <AL/alc.h>
 
 // --- Configuration ---
-#define BUFFER_SAMPLES 4096  // Increased for stability
-#define SAMPLE_RATE 386000    // Lowered for CPU efficiency
-#define NUM_BUFFERS 1024
-#define ITERATIONS 256        // Lowered to prevent stutter, increase if CPU allows
+#define BUFFER_SAMPLES 512
+#define SAMPLE_RATE 44100     // Set to a standard rate
+#define NUM_BUFFERS 16         // Reduced for lower latency
+#define ITERATIONS 16         // Reduced for CPU performance
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-// Global time tracker
+// Global variables
 double phase = 0;
-// Cache for random data to avoid slow system calls in the loop
 unsigned char random_cache[1024];
+pthread_mutex_t cache_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// --- Thread function to read random data asynchronously ---
+void* random_thread(void* arg) {
+    int fd = open("/dev/random", O_RDONLY);
+    if (fd < 0) {
+        perror("Failed to open /dev/random");
+        return NULL;
+    }
+    while (1) {
+        pthread_mutex_lock(&cache_mutex);
+        read(fd, random_cache, sizeof(random_cache));
+        pthread_mutex_unlock(&cache_mutex);
+        usleep(100000); // Update every 100ms
+    }
+    close(fd);
+    return NULL;
+}
 
 // --- DSP Effect Function ---
 void apply_effect(ALshort *buffer, int num_samples) {
     static int cache_ptr = 0;
     
-    // Get fresh random data for this buffer from cache
+    pthread_mutex_lock(&cache_mutex);
     unsigned char seed = random_cache[cache_ptr % 1024];
+    pthread_mutex_unlock(&cache_mutex);
     cache_ptr++;
 
     // Map seed to frequency jitter (+/- 20Hz)
@@ -65,8 +84,9 @@ int main() {
     ALshort tempBuffer[BUFFER_SAMPLES];
     ALint samplesAvailable, processed, state;
 
-    // --- Fill Random Cache ---
-    
+    // --- Start Random Thread ---
+    pthread_t thread_id;
+    pthread_create(&thread_id, NULL, random_thread, NULL);
 
     // --- Setup Playback ---
     playbackDev = alcOpenDevice(NULL);
@@ -86,12 +106,8 @@ int main() {
 
     // --- Initial Buffering ---
     for (int i = 0; i < NUM_BUFFERS; i++) {
-        do {
-            alcGetIntegerv(captureDev, ALC_CAPTURE_SAMPLES, 1, &samplesAvailable);
-        } while (samplesAvailable < BUFFER_SAMPLES);
-
+        // Fill initial buffer with silence if needed, or wait for mic
         alcCaptureSamples(captureDev, tempBuffer, BUFFER_SAMPLES);
-        apply_effect(tempBuffer, BUFFER_SAMPLES);
         alBufferData(buffers[i], AL_FORMAT_MONO16, tempBuffer, BUFFER_SAMPLES * sizeof(ALshort), SAMPLE_RATE);
     }
 
@@ -100,9 +116,6 @@ int main() {
 
     // --- Main Loop ---
     while (1) {
-    int fd = open("/dev/urandom", O_RDONLY);
-    read(fd, random_cache, sizeof(random_cache));
-    close(fd);
         alGetSourcei(source, AL_BUFFERS_PROCESSED, &processed);
         while (processed > 0) {
             ALuint bufID;
