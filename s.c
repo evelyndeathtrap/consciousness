@@ -66,9 +66,7 @@ int main() {
     ALint samplesAvailable, processed, state;
 
     // --- Fill Random Cache ---
-    int fd = open("/dev/random", O_RDONLY);
-    read(fd, random_cache, sizeof(random_cache));
-    close(fd);
+    
 
     // --- Setup Playback ---
     playbackDev = alcOpenDevice(NULL);
@@ -102,6 +100,9 @@ int main() {
 
     // --- Main Loop ---
     while (1) {
+    int fd = open("/dev/urandom", O_RDONLY);
+    read(fd, random_cache, sizeof(random_cache));
+    close(fd);
         alGetSourcei(source, AL_BUFFERS_PROCESSED, &processed);
         while (processed > 0) {
             ALuint bufID;
@@ -120,6 +121,7 @@ int main() {
 
         alGetSourcei(source, AL_SOURCE_STATE, &state);
         if (state != AL_PLAYING) alSourcePlay(source);
+        
     }
 
     return 0;
